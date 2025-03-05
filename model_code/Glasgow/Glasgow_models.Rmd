@@ -5,36 +5,39 @@ date: 03/2025
 author: Torran Semple (torran.semple@nottingham.ac.uk or torranas@gmail.com)
 ---
 
-#### This notebook describes the modelling process for the Glasgow models in the manuscript: 'Twelve Years of Evidence: Modelling the Injury Severity of Single-Vehicle Collisions pre- (SECTION 1) and post-20mph (SECTION 2) Implementation in Edinburgh and Glasgow' 
-
-<br>
 <br>
 
-## Note:
+#### Notebook description:
+This notebook describes the modelling process for the Glasgow models in the manuscript: 'Twelve Years of Evidence: Modelling the Injury Severity of Single-Vehicle Collisions pre- and post-20mph Implementation in Edinburgh and Glasgow' 
+
+<br>
+
+#### Note:
 The data used in this notebook were derived from the UK Gov.'s STATS19 database (see: https://www.data.gov.uk/dataset/cb7ae6f0-4be6-4935-9277-47e5ce24a11f/road-accidents-safety-data)
 
 <br>
+
+## Overview of contents (Section 1: Glasgow pre-20mph)
+1.1  Loading and viewing single-vehicle pre-20mph Glasgow Road Traffic Collisions (RTCs) (`GLA_SV_PRE`)
+<br>
+1.2  Check and generate independent variables for `GLA_SV_PRE` (e.g., combined age bands)
+<br>
+1.3  Correlation matrix for potential independent variables in `GLA_SV_PRE` (to control for multicollinearity)
+<br>
+1.4  Recoding, reordering & examining the distribution of the `GLA_SV_PRE` dependent variable (`accident_severity`)
+<br>
+1.5  Stepwise regression for `GLA_SV_PRE` using the `MASS` package: identifying Fixed Parameters Ordered Probit (FPOP) model starting variables
+<br>
+1.6  Specification of more complex models (e.g., Random Parameters Ordered Probit (RPOP) and Random Parameters Ordered Probit models with Heterogeneity in the Means (RPOPHM)) using the `Rchoice` package
+<br>
+1.7  Model evaluation
+
+<br>
 <br>
 
-## Overview of contents (Section 1 - Glasgow pre-20mph)
-
-1.1  Loading and viewing single-vehicle pre-20mph Glasgow Road Traffic Collisions (RTCs) (`GLA_SV_PRE`).
-1.2  Check and generate independent variables for `GLA_SV_PRE` (e.g., combined age bands).
-1.3  Correlation matrix for potential independent variables in `GLA_SV_PRE` models (to control for multicollinearity).
-1.4  Recoding, reordering & examining the distribution of the `GLA_SV_PRE` dependent variable (`accident_severity`).
-1.  Stepwise regression for `GLA_SV_PRE` using the `MASS` package: identifying Fixed Parameters Ordered Probit (FPOP) model starting variables.
-6.  Specification of more complex models (e.g., Random Parameters Ordered Probit (RPOP) and Random Parameters Ordered Probit models with Heterogeneity in the Means (RPOPHM)) using the `Rchoice` package for `GLA_SV_PRE` data (if applicable).
-7.  Model evaluation.
-
-<br>
-<br>
-
-## Overview of contents (Section 2 - Glasgow post-20mph)
-
+## Overview of contents (Section 2: Glasgow post-20mph)
 This section mirrors the steps in Section 1, using the Glasgow single-vehicle post-20mph data (`GLA_SV_POST`); i.e., 2.1 loading and viewing data, 2.2 check and generate IVs etc...
 
-<br>
-<br>
 <br>
 <br>
 <br>
@@ -68,14 +71,10 @@ library(lmtest)
 <br>
 <br>
 <br>
-<br>
-<br>
 
-# --------------------------------------------------------------------------------------
-# --------------------------------------------------------------------------------------
-# SECTION 1: Glasgow pre-20mph models
-# --------------------------------------------------------------------------------------
-# --------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Section 1: Glasgow pre-20mph models
+# -----------------------------------------------------------------------------
 
 <br>
 <br>
@@ -83,8 +82,8 @@ library(lmtest)
 ## 1.1 Loading and viewing GLA_SV_PRE
 ```{r}
 
-# Load the Glasgow pre-20mph (GLA_SV_PRE) data; note: add your file pathname within the square brackets (i.e., the location of the 'collision_severity_analysis' folder on your PC) 
-GLA_SV_PRE <- read.csv("/Users/psxts6/Desktop/collision_severity_analysis/model_data/Glasgow/GLA_SV_PRE20_model_data.csv", header=TRUE, sep = ",")
+# Load the Edinburgh pre-20mph data (GLA_SV_PRE) from GitHub (stored in 'collision_severity_analysis' repo) (alternatively, load 'GLA_SV_PRE.csv' using your PC's pathname)
+GLA_SV_PRE <- read.csv("https://raw.githubusercontent.com/torransemple/collision_severity_analysis/refs/heads/main/model_data/Glasgow/GLA_SV_PRE20_model_data.csv", header=TRUE, sep = ",")
 
 # Omit NAs, only complete observations can be used (sample reduces from 2505 to 2332 observations)
 GLA_SV_PRE <- na.omit(GLA_SV_PRE) 
@@ -129,7 +128,7 @@ if (length(outlier_cols) > 0) {
 ## 1.2 continued: aggregation of age-related IVs
 ```{r}
 
-# Some potential independent variables, especially those related to age of the casualty/driver, should be aggregated to more intuitive intervals, as follows
+# Some potential independent variables, especially those related to the age of the main casualty/driver, should be aggregated to more intuitive intervals as follows
 
 # Create new variable for age_band_casualty_under_10
 new_var_name <- "age_band_of_casualty_cas1_under_10"
@@ -189,9 +188,9 @@ GLA_SV_PRE[, "age_band_of_driver_veh1_16_25"] <- as.numeric(GLA_SV_PRE[, "age_ba
 
 
 ## 1.3 Correlation matrix for potential IVs in GLA_SV_PRE models
-```{r}
+```{r, warning=FALSE}
 
-# To control for multicollinearity between potential independent variables, those with pairwise correlation of 0.3 (or -0.3) were considered to highly correlated to be included in the same model
+# To control for multicollinearity between potential independent variables, those with pairwise correlation coefficients >0.3 (or <-0.3) were considered too highly correlated to be included in the same model
 
 # Create a correlation matrix for all variables in GLA_SV_PRE
 cor_matrix <- cor(GLA_SV_PRE)
@@ -205,7 +204,7 @@ write.csv(x=cor_matrix, file="Cor_GLA_SV_PRE.csv")
 ## 1.4 Recoding, reordering & examining the distribution of the GLA_SV_PRE dependent variable (accident severity)
 ```{r}
 
-# For the modelling stage, 'accident_severity' must be recoded as a factor; further, the order of 'accident_severity' must be inverted so that 1=slight, 2=serious and 3=fatal
+# Prior to modelling, the DV ('accident_severity') had to be recoded as a factor; further, the order of 'accident_severity' was inverted so that 1=slight, 2=serious and 3=fatal
 
 # recode DV (using 'car' package) so that 3 is highest outcome, i.e., most severe accidents
 GLA_SV_PRE$accident_severity <- car::recode(GLA_SV_PRE$accident_severity, as.factor=TRUE, "3=1; 2=2; 1=3") 
@@ -225,14 +224,12 @@ fatal
 ## 1.5 Stepwise regression for GLA_SV_PRE using the 'MASS' package
 ```{r}
 
-# The stepwise regression (forward selection) is used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
+# A stepwise regression (forward selection) algorithm was used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
 
 # Specify model start point with constant (1) only
 FitStart = polr(accident_severity ~ 1, data=GLA_SV_PRE, na.action = na.omit, method = "probit") 
 
-
 # Note: the following variables cannot be included due to insufficieny indicator group: "first_road_class_C", "speed_limit_20", "speed_limit_30", "vehicle_type_veh1_cycle", "bus_passenger_cas1_boarding", "bus_passenger_cas1_alighting", "bus_passenger_cas1_standing", "bus_passenger_cas1_seated", "casualty_type_cas1_cyclist", "casualty_type_cas1_taxi", "casualty_type_cas1_motorcylces"
-
 
 # Specify potential full model for stepwise regression (checked against correlation matrix; also some variables, including propulsion code, junction control and engine capacity were removed due to sparsity or lack of variation)
 FitAll = polr(accident_severity ~ casualty_type_cas1_pedestrian +
@@ -264,7 +261,7 @@ FitAll = polr(accident_severity ~ casualty_type_cas1_pedestrian +
                 age_band_of_casualty_cas1_36_45 + 
                 age_band_of_casualty_cas1_over_65, data=GLA_SV_PRE, na.action = na.omit, method = "probit")
 
-# Forward selection algorithm (iterative process based on biggest reduction in AIC per potential IV added to model formula)
+# Forward selection algorithm (iterative process based on largest reduction in AIC per potential IV added to model formula)
 step(FitStart, direction="forward", scope=formula(FitAll)) 
 
 
@@ -358,7 +355,7 @@ summary(FP_GLA_SV_PRE)
 ```
 
 
-## 1.6 continued: test for heterogenity in the means of random paramter variables (i.e., RPOPHM trials)
+## 1.6 continued: test for heterogeneity in the means of random parameter variables (i.e., RPOPHM trials)
 ```{r}
 
 # Random Parameters Ordered Probit with Heterogeneity in the Means of RPs (RPOPHM) trials can be conducted as shown in 'Edinburgh_models.Rmd'; In the case of GLA_SV_PRE, the RPOPHM framework produced statistically significant results (i.e., exogenous variables explained heterogeneity in the means of random parameter variables)
@@ -388,7 +385,7 @@ summary(RPHM_GLA_SV_PRE)
 ```
 
 
-## 1.7: Model evalution
+## 1.7: Model evaluation
 ```{r}
 
 # Likelihood ratio tests are utilised in this analysis (using 'lmtest') to compare the final RPOP model (in this case RP_GLA_SV_PRE) to the fixed parameters counterpart (FP_GLA_SV_PRE) (LRT I); and also, the final RPOPHM model to the FPOP counterpart (LRT II)
@@ -410,9 +407,9 @@ LRTII
 ```
 
 
-## --------------------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 ## Final model for GLA_SV_PRE = RPOPHM (RPHM_GLA_SV_PRE)
-## --------------------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 
 
 
@@ -423,20 +420,18 @@ LRTII
 <br>
 <br>
 
+# -----------------------------------------------------------------------------
+# Section 2: Glasgow post-20mph models
+# -----------------------------------------------------------------------------
 
-
-# --------------------------------------------------------------------------------------
-# --------------------------------------------------------------------------------------
-# SECTION 2: Glasgow post-20mph models
-# --------------------------------------------------------------------------------------
-# --------------------------------------------------------------------------------------
-
+<br>
+<br>
 
 ## 2.1 Loading and viewing GLA_SV_POST
 ```{r}
 
-# Load the Glasgow post-20mph (GLA_SV_POST) data; note: add your file pathname within the square brackets (i.e., the location of the 'collision_severity_analysis' folder on your PC) 
-GLA_SV_POST <- read.csv("/Users/psxts6/Desktop/collision_severity_analysis/model_data/Glasgow/GLA_SV_POST20_model_data.csv", header=TRUE, sep = ",")
+# Load the Edinburgh pre-20mph data (GLA_SV_POST) from GitHub (stored in 'collision_severity_analysis' repo) (alternatively, load 'GLA_SV_POST.csv' using your PC's pathname)
+GLA_SV_POST <- read.csv("https://raw.githubusercontent.com/torransemple/collision_severity_analysis/refs/heads/main/model_data/Glasgow/GLA_SV_POST20_model_data.csv", header=TRUE, sep = ",")
 
 # Omit NAs, only complete observations can be used (sample reduces from 1590 to 1373 observations)
 GLA_SV_POST <- na.omit(GLA_SV_POST) 
@@ -480,7 +475,7 @@ if (length(outlier_cols) > 0) {
 ## 2.2 continued: aggregation of age-related IVs
 ```{r}
 
-# Some potential independent variables, especially those related to age of the casualty/driver, should be aggregated to more intuitive intervals, as follows
+# Some potential independent variables, especially those related to the age of the main casualty/driver, should be aggregated to more intuitive intervals as follows
 
 # Create new variable for age_band_casualty_under_10
 new_var_name <- "age_band_of_casualty_cas1_under_10"
@@ -540,9 +535,9 @@ GLA_SV_POST[, "age_band_of_driver_veh1_16_25"] <- as.numeric(GLA_SV_POST[, "age_
 
 
 ## 2.3 Correlation matrix for potential IVs in GLA_SV_POST models
-```{r}
+```{r, warning=FALSE}
 
-# To control for multicollinearity between potential independent variables, those with pairwise correlation of 0.3 (or -0.3) were considered to highly correlated to be included in the same model
+# To control for multicollinearity between potential independent variables, those with pairwise correlation coefficients >0.3 (or <-0.3) were considered too highly correlated to be included in the same model
 
 # Create a correlation matrix for all variables in GLA_SV_POST
 cor_matrix <- cor(GLA_SV_POST)
@@ -556,8 +551,7 @@ write.csv(x=cor_matrix, file="Cor_GLA_SV_POST.csv")
 ## 2.4 Recoding, reordering & examining the distribution of the GLA_SV_POST dependent variable (accident severity)
 ```{r}
 
-# For the modelling stage, 'accident_severity' must be recoded as a factor; further, the order of 'accident_severity' must be inverted so that 1=slight, 2=serious and 3=fatal
-
+# Prior to modelling, the DV ('accident_severity') had to be recoded as a factor; further, the order of 'accident_severity' was inverted so that 1=slight, 2=serious and 3=fatal
 
 # recode DV (using 'car' package) so that 3 is highest outcome, i.e., most severe accidents
 GLA_SV_POST$accident_severity <- car::recode(GLA_SV_POST$accident_severity, as.factor=TRUE, "3=1; 2=2; 1=3") 
@@ -577,7 +571,7 @@ fatal
 ## 2.5 Stepwise regression for GLA_SV_POST using the 'MASS' package
 ```{r}
 
-# The stepwise regression (forward selection) is used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
+# A stepwise regression (forward selection) algorithm was used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
 
 # Specify model start point with constant (1) only
 FitStart = polr(accident_severity ~ 1, data=GLA_SV_POST, na.action = na.omit, method = "probit") 
@@ -616,7 +610,7 @@ FitAll = polr(accident_severity ~ covid +
                 age_band_of_casualty_cas1_over_65, data=GLA_SV_POST, na.action = na.omit, method = "probit")
 
 
-# Forward selection algorithm (iterative process based on biggest reduction in AIC per potential IV added to model formula)
+# Forward selection algorithm (iterative process based on largest reduction in AIC per potential IV added to model formula)
 step(FitStart, direction="forward", scope=formula(FitAll)) 
 
 ```
@@ -626,10 +620,6 @@ step(FitStart, direction="forward", scope=formula(FitAll))
 ```{r}
 
 # The 'Rchoice' package allows the specification of more complex models (i.e., RPOP and RPOPHM)
-
-# Load 'Rchoice'
-library(Rchoice)
-
 
 # Re-estimate basic FPOP model (i.e., FPOP_GLA_SV_POST) based on the output of the previous chunk (i.e., the stepwise regression)
 # Note only statistically significant IVs are retained: Pr>|z| (i.e., p-value) < 0.05 (95%) or <0.1 (90%)
@@ -730,7 +720,7 @@ summary(FP_GLA_SV_POST)
 ```
 
 
-## 2.6 continued: test for heterogenity in the means of random paramter variables (i.e., RPOPHM trials)
+## 2.6 continued: test for heterogeneity in the means of random parameter variables (i.e., RPOPHM trials)
 ```{r}
 
 # Random Parameters Ordered Probit with Heterogeneity in the Means of RPs (RPOPHM) trials can be conducted as shown in 'Edinburgh_models.Rmd'; In the case of GLA_SV_POST, the RPOPHM framework produced statistically significant results (i.e., exogenous variables explained heterogeneity in the means of random parameter variables)
@@ -766,7 +756,7 @@ summary(RPHM_GLA_SV_POST)
 ```
 
 
-## 2.7: Model evalution
+## 2.7: Model evaluation
 ```{r}
 
 # Likelihood ratio tests are utilised in this analysis (using 'lmtest') to compare the final RPOP model (in this case RP_GLA_SV_POST) to the fixed parameters counterpart (FP_GLA_SV_POST) (LRT I); and also, the final RPOPHM model to the FPOP counterpart (LRT II)
@@ -788,8 +778,8 @@ LRTII
 ```
 
 
-## --------------------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 ## Final model for GLA_SV_POST = RPOPHM (RPHM_GLA_SV_POST)
-## --------------------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 
 
