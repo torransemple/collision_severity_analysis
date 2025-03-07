@@ -14,7 +14,5 @@ To use this repository, download the entire contents of 'collision_severity_anal
 The authors would like to acknowledge the UK Gov. DfT for their provision of publicly accessible road safety data.
 
 ## Contact
-Feel free to get in touch with questions or feedback. 
-Email: torran.semple@nottingham.ac.uk
-Alt email: torranas@gmail.com
+Feel free to get in touch with questions or feedback. Email: torran.semple@nottingham.ac.uk; alt email: torranas@gmail.com
 
