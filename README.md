@@ -33,7 +33,7 @@ The relevant road safety data were derived from the Department for Transport's (
         * `Edinburgh_models.Rmd`: R Markdown file for Edinburgh models.
     * `Glasgow`:
         * `Glasgow_models.Rmd`: R Markdown file for Glasgow models.
-* **`model_data`:** Contains the processed datasets used for the statistical models. (Note: These are directly readable from the GitHub repo.)
+* **`model_data`:** Contains the processed datasets used for the statistical models. (Note: These are directly readable from the GitHub repository)
 
 ## Usage
 
