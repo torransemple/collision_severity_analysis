@@ -23,6 +23,7 @@ This repository focuses specifically on the statistical analysis phase of the ab
 The relevant road safety data were derived from the Department for Transport's (DfT) centralized database:
 
 * [DfT Road Accidents and Safety Data](https://www.data.gov.uk/dataset/cb7ae6f0-4be6-4935-9277-47e5ce24a11f/road-accidents-safety-data)
+*  Contains public sector information licensed under the Open Government Licence v3.0.
 
 **Note:** Significant data preprocessing was required to generate the final model datasets (see `model_data`), i.e., collision severity data per city per scenario. For more information on the data preprocessing methods used for the DfT's road safety data, please contact me at the address provided below.
 
