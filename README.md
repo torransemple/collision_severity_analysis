@@ -28,20 +28,16 @@ The relevant road safety data were derived from the Department for Transport's (
 
 ## Repository Contents
 
-* **`model_code`:** Contains R Markdown files with the code for the statistical analysis.
-    * `Edinburgh`:
-        * `Edinburgh_models.Rmd`: R Markdown file for Edinburgh models.
-    * `Glasgow`:
-        * `Glasgow_models.Rmd`: R Markdown file for Glasgow models.
-* **`model_data`:** Contains the processed datasets used for the statistical models. (Note: These are directly readable from the GitHub repository)
+* **`Edinburgh`:** Contains an R Markdown file with the code for the statistical analysis in Edinburgh (see `Edinburgh_models.Rmd`) and relevant data for the pre- (see `ED_SV_PRE20_model_data.csv`) and post-20mph (see `ED_SV_POST20_model_data.csv`) periods.
+* **`Glasgow`:** Contains an R Markdown file with the code for the statistical analysis in Glasgow (see `Glasgow_models.Rmd`) and relevant data for the pre- (see `GLA_SV_PRE20_model_data.csv`) and post-20mph (see `GLA_SV_POST20_model_data.csv`) periods.
 
 ## Usage
 
 1.  **Download:** Download the entire contents of the repository.
 2.  **Access Model Code:**
     * Open the R Markdown files in RStudio or a similar environment:
-        * Edinburgh models: `model_code/Edinburgh/Edinburgh_models.Rmd`
-        * Glasgow models: `model_code/Glasgow/Glasgow_models.Rmd`
+        * Edinburgh models: `Edinburgh/code/Edinburgh_models.Rmd`
+        * Glasgow models: `Glasgow/code/Glasgow_models.Rmd`
 3.  **Run the Code:**
     * The model data are directly readable from the repository. You should not have to change the file pathname (however, if the data do not load, you can load directly from your own PC).
     * To run the R Markdown files successfully, ensure the following R packages are installed:
@@ -60,5 +56,4 @@ The authors would like to acknowledge the UK Gov. DfT for their provision of pub
 
 Feel free to get in touch with questions or feedback.
 
-* **Email:** <torran.semple@nottingham.ac.uk>
-* **Alternative Email:** <torranas@gmail.com>
+* **Email:** <torran.semple@ox.eng.ac.uk>
