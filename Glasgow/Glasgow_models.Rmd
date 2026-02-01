@@ -1,0 +1,785 @@
+---
+title: "Pre- and post-20mph models models for Glasgow single-vehicle collisions"
+output: html_notebook
+date: 03/2025
+author: Torran Semple (torran.semple@nottingham.ac.uk or torranas@gmail.com)
+---
+
+<br>
+
+#### Notebook description:
+This notebook describes the modelling process for the Glasgow models in the manuscript: 'Twelve Years of Evidence: Modelling the Injury Severity of Single-Vehicle Collisions pre- and post-20mph Implementation in Edinburgh and Glasgow' 
+
+<br>
+
+#### Note:
+The data used in this notebook were derived from the UK Gov.'s STATS19 database (see: https://www.data.gov.uk/dataset/cb7ae6f0-4be6-4935-9277-47e5ce24a11f/road-accidents-safety-data)
+
+<br>
+
+## Overview of contents (Section 1: Glasgow pre-20mph)
+1.1  Loading and viewing single-vehicle pre-20mph Glasgow Road Traffic Collisions (RTCs) (`GLA_SV_PRE`)
+<br>
+1.2  Check and generate independent variables for `GLA_SV_PRE` (e.g., combined age bands)
+<br>
+1.3  Correlation matrix for potential independent variables in `GLA_SV_PRE` (to control for multicollinearity)
+<br>
+1.4  Recoding, reordering & examining the distribution of the `GLA_SV_PRE` dependent variable (`accident_severity`)
+<br>
+1.5  Stepwise regression for `GLA_SV_PRE` using the `MASS` package: identifying Fixed Parameters Ordered Probit (FPOP) model starting variables
+<br>
+1.6  Specification of more complex models (e.g., Random Parameters Ordered Probit (RPOP) and Random Parameters Ordered Probit models with Heterogeneity in the Means (RPOPHM)) using the `Rchoice` package
+<br>
+1.7  Model evaluation
+
+<br>
+<br>
+
+## Overview of contents (Section 2: Glasgow post-20mph)
+This section mirrors the steps in Section 1, using the Glasgow single-vehicle post-20mph data (`GLA_SV_POST`); i.e., 2.1 loading and viewing data, 2.2 check and generate IVs etc...
+
+<br>
+<br>
+<br>
+
+## Set working directory, load/install required packages and package dependencies
+```{r, warning=FALSE}
+
+# Note: set the working directory to the source file location; for example:
+setwd("~/Documents/collision_severity_analysis/Glasgow")
+
+# Install required packages if necessary
+if(!require(car)) install.packages("car")
+if(!require(MASS)) install.packages("MASS")
+if(!require(Rchoice)) install.packages("Rchoice")
+if(!require(lmtest)) install.packages("lmtest")
+
+
+# Load required packages
+library(car) # For variable recoding, regression diagnostics and analysis
+library(MASS) # For ordered regression
+library(Rchoice) # For choice modeling
+library(lmtest) # For likelihood-ratio tests
+
+
+# Dependencies - shows R and package versions used in original analysis
+sessioninfo::session_info()
+
+
+```
+
+<br>
+<br>
+<br>
+
+# -----------------------------------------------------------------------------
+# Section 1: Glasgow pre-20mph models
+# -----------------------------------------------------------------------------
+
+<br>
+<br>
+
+## 1.1 Loading and viewing GLA_SV_PRE
+```{r}
+
+# Load the Edinburgh pre-20mph data (GLA_SV_PRE) from GitHub (stored in 'collision_severity_analysis' repo) (alternatively, load 'GLA_SV_PRE.csv' locally)
+GLA_SV_PRE <- read.csv("https://raw.githubusercontent.com/torransemple/collision_severity_analysis/refs/heads/main/collision_severity_analysis/Glasgow/data/GLA_SV_PRE20_model_data.csv", header=TRUE, sep = ",")
+
+# Omit NAs, only complete observations can be used (sample reduces from 2505 to 2332 observations)
+GLA_SV_PRE <- na.omit(GLA_SV_PRE) 
+
+# Check structure of GLA_SV_PRE - all available variables, types etc. 
+str(GLA_SV_PRE)
+
+# Drop irrelevant columns (inc. duplicates of variables etc.)
+GLA_SV_PRE <- GLA_SV_PRE[ -c(1:2, 4:47) ]
+
+```
+
+
+## 1.2 Independent variable inclusion criteria for GLA_SV_PRE
+```{r}
+
+# Note: potential independent variables must have at least 2% indicator group or no more than 98%
+
+# Set minimum and maximum thresholds
+min_threshold <- 0.02
+max_threshold <- 0.98
+
+# Calculate mean indicator group per column (i.e., independent variable)
+col_means <- colMeans(GLA_SV_PRE, na.rm = TRUE)
+
+# Find columns outside the threshold range (<0.02 or >0.98)
+outlier_cols <- names(col_means[col_means < min_threshold | col_means > max_threshold])
+
+# Print the results
+if (length(outlier_cols) > 0) {
+  message("Columns with mean outside", min_threshold, "and", max_threshold, ":")
+  print(outlier_cols)
+} else {
+  message("No columns found with mean outside the specified range.")
+}
+
+# Hence, do not include variables listed below (interestingly this includes speed_limit_20 for GLA_SV_PRE, i.e., less than 2% of accidents occurred on 20mph roads)
+
+```
+
+
+## 1.2 continued: aggregation of age-related IVs
+```{r}
+
+# Some potential independent variables, especially those related to the age of the main casualty/driver, should be aggregated to more intuitive intervals as follows
+
+# Create new variable for age_band_casualty_under_10
+new_var_name <- "age_band_of_casualty_cas1_under_10"
+
+# Create the new variable using ifelse
+GLA_SV_PRE[new_var_name] <- rowSums(GLA_SV_PRE[, c("age_band_of_casualty_cas1_0_5", "age_band_of_casualty_cas1_6_10")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_PRE[, "age_band_of_casualty_cas1_under_10"] <- as.numeric(GLA_SV_PRE[, "age_band_of_casualty_cas1_under_10"])
+
+
+
+# Create new variable for age_band_casualty_11_20
+new_var_name <- "age_band_of_casualty_cas1_11_20"
+
+# Create the new variable using ifelse
+GLA_SV_PRE[new_var_name] <- rowSums(GLA_SV_PRE[, c("age_band_of_casualty_cas1_11_15", "age_band_of_casualty_cas1_16_20")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_PRE[, "age_band_of_casualty_cas1_11_20"] <- as.numeric(GLA_SV_PRE[, "age_band_of_casualty_cas1_11_20"])
+
+
+
+# Create new variable for age_band_casualty_over_65
+new_var_name <- "age_band_of_casualty_cas1_over_65"
+
+# Create the new variable using ifelse
+GLA_SV_PRE[new_var_name] <- rowSums(GLA_SV_PRE[, c("age_band_of_casualty_cas1_66_75", "age_band_of_casualty_cas1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_PRE[, "age_band_of_casualty_cas1_over_65"] <- as.numeric(GLA_SV_PRE[, "age_band_of_casualty_cas1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_over_65
+new_var_name <- "age_band_of_driver_veh1_over_65"
+
+# Create the new variable using ifelse
+GLA_SV_PRE[new_var_name] <- rowSums(GLA_SV_PRE[, c("age_band_of_driver_veh1_66_75", "age_band_of_driver_veh1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_PRE[, "age_band_of_driver_veh1_over_65"] <- as.numeric(GLA_SV_PRE[, "age_band_of_driver_veh1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_16_25
+new_var_name <- "age_band_of_driver_veh1_16_25"
+
+# Create the new variable using ifelse
+GLA_SV_PRE[new_var_name] <- rowSums(GLA_SV_PRE[, c("age_band_of_driver_veh1_16_20", "age_band_of_driver_veh1_21_25")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_PRE[, "age_band_of_driver_veh1_16_25"] <- as.numeric(GLA_SV_PRE[, "age_band_of_driver_veh1_16_25"])
+
+
+```
+
+
+## 1.3 Correlation matrix for potential IVs in GLA_SV_PRE models
+```{r, warning=FALSE}
+
+# To control for multicollinearity between potential independent variables, those with pairwise correlation coefficients >0.3 (or <-0.3) were considered too highly correlated to be included in the same model
+
+# Create a correlation matrix for all variables in GLA_SV_PRE
+cor_matrix <- cor(GLA_SV_PRE)
+
+# Write csv to inspect correlation matrix in a more intuitive environment; note, it is often beneficial to apply coloured conditional formatting in Excel to identify variables that exceed 0.3 or -0.3
+write.csv(x=cor_matrix, file="Cor_GLA_SV_PRE.csv")
+
+```
+
+
+## 1.4 Recoding, reordering & examining the distribution of the GLA_SV_PRE dependent variable (accident severity)
+```{r}
+
+# Prior to modelling, the DV ('accident_severity') had to be recoded as a factor; further, the order of 'accident_severity' was inverted so that 1=slight, 2=serious and 3=fatal
+
+# recode DV (using 'car' package) so that 3 is highest outcome, i.e., most severe accidents
+GLA_SV_PRE$accident_severity <- car::recode(GLA_SV_PRE$accident_severity, as.factor=TRUE, "3=1; 2=2; 1=3") 
+
+# Check distribution of DV - 3 should have the fewest outcomes, 1 the most - i.e., heavily zero-inflated distribution
+table(GLA_SV_PRE$accident_severity) 
+
+# Check % of fatal RTCs (should be 1% or more for ordered modelling, or above 20 observations)
+fatal <- (40/2332)*100
+fatal
+
+# Note: the % of fatal RTCs is 1.7% and >20; hence, ordered models are appropriate for GLA_SV_PRE
+
+```
+
+
+## 1.5 Stepwise regression for GLA_SV_PRE using the 'MASS' package
+```{r}
+
+# A stepwise regression (forward selection) algorithm was used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
+
+# Specify model start point with constant (1) only
+FitStart = polr(accident_severity ~ 1, data=GLA_SV_PRE, na.action = na.omit, method = "probit") 
+
+# Note: the following variables cannot be included due to insufficieny indicator group: "first_road_class_C", "speed_limit_20", "speed_limit_30", "vehicle_type_veh1_cycle", "bus_passenger_cas1_boarding", "bus_passenger_cas1_alighting", "bus_passenger_cas1_standing", "bus_passenger_cas1_seated", "casualty_type_cas1_cyclist", "casualty_type_cas1_taxi", "casualty_type_cas1_motorcylces"
+
+# Specify potential full model for stepwise regression (checked against correlation matrix; also some variables, including propulsion code, junction control and engine capacity were removed due to sparsity or lack of variation)
+FitAll = polr(accident_severity ~ casualty_type_cas1_pedestrian +
+                pedestrian_location_cas1_footway_verge + 
+                pedestrian_location_cas1_in_carriageway_not_crossing + 
+                pedestrian_location_cas1_not_using_crossing + 
+                first_road_class_A + first_road_class_B +
+                road_type_one_way + 
+                road_type_dual_c + 
+                junction_detail_crossroads + 
+                pedestrian_crossing_physical_facilities_pelican_puffin +
+                pedestrian_crossing_physical_facilities_pedestrian_phase + 
+                light_conditions_dark_lit + 
+                weather_conditions_rain_no_wind + 
+                vehicle_manoeuvre_veh1_reversing +
+                vehicle_manoeuvre_veh1_slowing_stopping + 
+                vehicle_manoeuvre_veh1_going_ahead_other + 
+                first_point_of_impact_veh1_back + 
+                first_point_of_impact_veh1_offside + 
+                first_point_of_impact_veh1_nearside + 
+                journey_purpose_of_driver_veh1_commute + 
+                sex_of_driver_veh1_male + 
+                age_band_of_driver_veh1_16_25 + 
+                age_band_of_driver_veh1_over_65 + 
+                age_band_of_driver_veh1_over_75 + 
+                sex_of_casualty_cas1_male + 
+                age_band_of_casualty_cas1_under_10 + 
+                age_band_of_casualty_cas1_11_20 + 
+                age_band_of_casualty_cas1_36_45 + 
+                age_band_of_casualty_cas1_over_65, data=GLA_SV_PRE, na.action = na.omit, method = "probit")
+
+# Forward selection algorithm (iterative process based on largest reduction in AIC per potential IV added to model formula)
+step(FitStart, direction="forward", scope=formula(FitAll)) 
+
+
+```
+
+
+## 1.6 The specification of more complex models (e.g. RPOP or RPOPHM) using the 'Rchoice' package, for GLA_SV_PRE data
+```{r}
+
+# The 'Rchoice' package allows the specification of more complex models (i.e., RPOP and RPOPHM)
+
+# Re-estimate basic FPOP model (i.e., FPOP_GLA_SV_PRE) based on the output of the previous chunk (i.e., the stepwise regression)
+# Note only statistically significant IVs are retained: Pr>|z| (i.e., p-value) < 0.05 (95%) or <0.1 (90%)
+FPOP_GLA_SV_PRE <- Rchoice(accident_severity ~ age_band_of_casualty_cas1_over_65 + 
+                             vehicle_manoeuvre_veh1_going_ahead_other + 
+                             casualty_type_cas1_pedestrian + 
+                             sex_of_driver_veh1_male + 
+                             light_conditions_dark_lit + 
+                             first_point_of_impact_veh1_offside + 
+                             first_road_class_A, data=GLA_SV_PRE, family=ordinal("probit"))
+
+# Summarise FPOP model
+summary(FPOP_GLA_SV_PRE)
+
+```
+
+
+## 1.6 continued: random parameter trials
+```{r}
+
+# Now trial random parameters (using the 'Trial_RP_GLA_SV_PRE' formula); note: this is a trial and error process, i.e., try every potential IV (that meets the previously defined inclusion criteria as random parameters)
+
+# Trial RPOP 
+Trial_RP_GLA_SV_PRE <- Rchoice(accident_severity ~ age_band_of_casualty_cas1_over_65 +
+                                 vehicle_manoeuvre_veh1_going_ahead_other + 
+                                 casualty_type_cas1_pedestrian +
+                                 sex_of_driver_veh1_male + 
+                                 light_conditions_dark_lit + 
+                                 first_point_of_impact_veh1_offside + 
+                                 first_road_class_A + 
+                                 road_surface_conditions_wet + 
+                                 pedestrian_location_cas1_footway_verge + 
+                                 road_type_one_way, data=GLA_SV_PRE, family=ordinal("probit"),
+                                 ranp=c(age_band_of_casualty_cas1_over_65="n", # specify random parameters (ranp); n = normal distribution
+                                 road_surface_conditions_wet="n", 
+                                 pedestrian_location_cas1_footway_verge="n",
+                                 road_type_one_way="n"), 
+                                 R=200) # R = number of Halton draws - 200 is sufficient for ranp trials
+
+# build on FPOP model - trial all available independent variables as random parameters (around 6/7 variables specified as RPs at a time to reduce model estimation time
+
+
+
+# Finalised RPOP model
+RP_GLA_SV_PRE <- Rchoice(accident_severity ~ age_band_of_casualty_cas1_over_65 + 
+                           vehicle_manoeuvre_veh1_going_ahead_other + 
+                           casualty_type_cas1_pedestrian + 
+                           sex_of_driver_veh1_male + 
+                           light_conditions_dark_lit + 
+                           first_point_of_impact_veh1_offside + 
+                           first_road_class_A + road_surface_conditions_wet + 
+                           pedestrian_location_cas1_footway_verge, data=GLA_SV_PRE, family=ordinal("probit"),
+                           ranp=c(age_band_of_casualty_cas1_over_65="n", # specify random parameters (ranp); n = normal distribution
+                           road_surface_conditions_wet="n", 
+                           pedestrian_location_cas1_footway_verge="n"), 
+                           R=500) # R = number of Halton draws - 500 required for final model
+
+# Summarise RPOP model
+summary(RP_GLA_SV_PRE)
+
+
+```
+
+
+## 1.6 continued: re-estimate FPOP with RP variables (for purposes of fair comparison of FPOP and RPOP in model evaluation)
+```{r}
+
+# Finalised FPOP model
+FP_GLA_SV_PRE <- Rchoice(accident_severity ~ age_band_of_casualty_cas1_over_65 + 
+                           vehicle_manoeuvre_veh1_going_ahead_other + 
+                           casualty_type_cas1_pedestrian + 
+                           sex_of_driver_veh1_male + 
+                           light_conditions_dark_lit + 
+                           first_point_of_impact_veh1_offside + 
+                           first_road_class_A + road_surface_conditions_wet + 
+                           pedestrian_location_cas1_footway_verge, data=GLA_SV_PRE, family=ordinal("probit"))
+
+# Summarise FPOP model 
+summary(FP_GLA_SV_PRE)
+
+```
+
+
+## 1.6 continued: test for heterogeneity in the means of random parameter variables (i.e., RPOPHM trials)
+```{r}
+
+# Random Parameters Ordered Probit with Heterogeneity in the Means of RPs (RPOPHM) trials can be conducted as shown in 'Edinburgh_models.Rmd'; In the case of GLA_SV_PRE, the RPOPHM framework produced statistically significant results (i.e., exogenous variables explained heterogeneity in the means of random parameter variables)
+
+# Finalised RPOPHM model
+RPHM_GLA_SV_PRE <- Rchoice(accident_severity ~ age_band_of_casualty_cas1_over_65 + 
+                             vehicle_manoeuvre_veh1_going_ahead_other + 
+                             casualty_type_cas1_pedestrian + 
+                             sex_of_driver_veh1_male + 
+                             light_conditions_dark_lit + 
+                             first_point_of_impact_veh1_offside + 
+                             first_road_class_A + 
+                             road_surface_conditions_wet + 
+                             pedestrian_location_cas1_footway_verge | age_band_of_casualty_cas1_over_65 + 
+                             road_surface_conditions_wet + 
+                             pedestrian_location_cas1_footway_verge + 
+                             first_point_of_impact_veh1_back, data=GLA_SV_PRE, family=ordinal("probit"),
+                             ranp=c(age_band_of_casualty_cas1_over_65="n", # specify random parameters (ranp); n = normal distribution
+                             road_surface_conditions_wet="n", 
+                             pedestrian_location_cas1_footway_verge="n"), 
+                             R=500, # R = number of Halton draws - 500 required for final model
+                             mvar=list( pedestrian_location_cas1_footway_verge=c("first_point_of_impact_veh1_back"))) # Specification of HM in RP variable(s)
+
+# Summarise RPOPHM model
+summary(RPHM_GLA_SV_PRE)
+
+```
+
+
+## 1.7: Model evaluation
+```{r}
+
+# Likelihood ratio tests are utilised in this analysis (using 'lmtest') to compare the final RPOP model (in this case RP_GLA_SV_PRE) to the fixed parameters counterpart (FP_GLA_SV_PRE) (LRT I); and also, the final RPOPHM model to the FPOP counterpart (LRT II)
+
+# LRTI: LRT test for RP_GLA_SV_PRE versus FP_GLA_SV_PRE
+LRTI <- lrtest(FP_GLA_SV_PRE, RP_GLA_SV_PRE)
+LRTI
+
+# The LRTI result shows that that RP_GLA_SV_PRE is superior to FP_GLA_SV_PRE with >99% level of confidence
+
+
+# LRTII: LRT test for RPHM_GLA_SV_PRE versus FP_GLA_SV_PRE
+LRTII <- lrtest(FP_GLA_SV_PRE, RPHM_GLA_SV_PRE)
+LRTII
+
+# The LRTII result shows that that RPHM_GLA_SV_PRE is superior to FP_GLA_SV_PRE with >99% level of confidence
+
+
+```
+
+
+## -----------------------------------------------------------------------------
+## Final model for GLA_SV_PRE = RPOPHM (RPHM_GLA_SV_PRE)
+## -----------------------------------------------------------------------------
+
+
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+
+# -----------------------------------------------------------------------------
+# Section 2: Glasgow post-20mph models
+# -----------------------------------------------------------------------------
+
+<br>
+<br>
+
+## 2.1 Loading and viewing GLA_SV_POST
+```{r}
+
+# Load the Edinburgh pre-20mph data (GLA_SV_POST) from GitHub (stored in 'collision_severity_analysis' repo) (alternatively, load 'GLA_SV_POST.csv' using your PC's pathname)
+GLA_SV_POST <- read.csv("https://raw.githubusercontent.com/torransemple/collision_severity_analysis/refs/heads/main/collision_severity_analysis/Glasgow/data/GLA_SV_POST20_model_data.csv", header=TRUE, sep = ",")
+
+# Omit NAs, only complete observations can be used (sample reduces from 1590 to 1373 observations)
+GLA_SV_POST <- na.omit(GLA_SV_POST) 
+
+# Check structure of GLA_SV_POST - all available variables, types etc. 
+str(GLA_SV_POST)
+
+# Drop irrelevant columns (inc. duplicates of variables etc.)
+GLA_SV_POST <- GLA_SV_POST[ -c(1:2, 4:6, 8:47) ]
+
+```
+
+
+## 2.2 Independent variable inclusion criteria for GLA_SV_POST
+```{r}
+
+# Note: potential independent variables must have at least 2% indicator group or no more than 98%
+
+# Set minimum and maximum thresholds
+min_threshold <- 0.02
+max_threshold <- 0.98
+
+# Calculate mean indicator group per column (i.e., independent variable)
+col_means <- colMeans(GLA_SV_POST, na.rm = TRUE)
+
+# Find columns outside the threshold range (<0.02 or >0.98)
+outlier_cols <- names(col_means[col_means < min_threshold | col_means > max_threshold])
+
+# Print the results
+if (length(outlier_cols) > 0) {
+  message("Columns with mean outside", min_threshold, "and", max_threshold, ":")
+  print(outlier_cols)
+} else {
+  message("No columns found with mean outside the specified range.")
+}
+
+# Hence, do not include variables listed below
+
+```
+
+## 2.2 continued: aggregation of age-related IVs
+```{r}
+
+# Some potential independent variables, especially those related to the age of the main casualty/driver, should be aggregated to more intuitive intervals as follows
+
+# Create new variable for age_band_casualty_under_10
+new_var_name <- "age_band_of_casualty_cas1_under_10"
+
+# Create the new variable using ifelse
+GLA_SV_POST[new_var_name] <- rowSums(GLA_SV_POST[, c("age_band_of_casualty_cas1_0_5", "age_band_of_casualty_cas1_6_10")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_POST[, "age_band_of_casualty_cas1_under_10"] <- as.numeric(GLA_SV_POST[, "age_band_of_casualty_cas1_under_10"])
+
+
+
+# Create new variable for age_band_casualty_11_20
+new_var_name <- "age_band_of_casualty_cas1_11_20"
+
+# Create the new variable using ifelse
+GLA_SV_POST[new_var_name] <- rowSums(GLA_SV_POST[, c("age_band_of_casualty_cas1_11_15", "age_band_of_casualty_cas1_16_20")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_POST[, "age_band_of_casualty_cas1_11_20"] <- as.numeric(GLA_SV_POST[, "age_band_of_casualty_cas1_11_20"])
+
+
+
+# Create new variable for age_band_casualty_over_65
+new_var_name <- "age_band_of_casualty_cas1_over_65"
+
+# Create the new variable using ifelse
+GLA_SV_POST[new_var_name] <- rowSums(GLA_SV_POST[, c("age_band_of_casualty_cas1_66_75", "age_band_of_casualty_cas1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_POST[, "age_band_of_casualty_cas1_over_65"] <- as.numeric(GLA_SV_POST[, "age_band_of_casualty_cas1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_over_65
+new_var_name <- "age_band_of_driver_veh1_over_65"
+
+# Create the new variable using ifelse
+GLA_SV_POST[new_var_name] <- rowSums(GLA_SV_POST[, c("age_band_of_driver_veh1_66_75", "age_band_of_driver_veh1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_POST[, "age_band_of_driver_veh1_over_65"] <- as.numeric(GLA_SV_POST[, "age_band_of_driver_veh1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_16_25
+new_var_name <- "age_band_of_driver_veh1_16_25"
+
+# Create the new variable using ifelse
+GLA_SV_POST[new_var_name] <- rowSums(GLA_SV_POST[, c("age_band_of_driver_veh1_16_20", "age_band_of_driver_veh1_21_25")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+GLA_SV_POST[, "age_band_of_driver_veh1_16_25"] <- as.numeric(GLA_SV_POST[, "age_band_of_driver_veh1_16_25"])
+
+
+```
+
+
+## 2.3 Correlation matrix for potential IVs in GLA_SV_POST models
+```{r, warning=FALSE}
+
+# To control for multicollinearity between potential independent variables, those with pairwise correlation coefficients >0.3 (or <-0.3) were considered too highly correlated to be included in the same model
+
+# Create a correlation matrix for all variables in GLA_SV_POST
+cor_matrix <- cor(GLA_SV_POST)
+
+# Write csv to inspect correlation matrix in a more intuitive environment; note, it is often beneficial to apply coloured conditional formatting in Excel to identify variables that exceed 0.3 or -0.3
+write.csv(x=cor_matrix, file="Cor_GLA_SV_POST.csv")
+
+```
+
+
+## 2.4 Recoding, reordering & examining the distribution of the GLA_SV_POST dependent variable (accident severity)
+```{r}
+
+# Prior to modelling, the DV ('accident_severity') had to be recoded as a factor; further, the order of 'accident_severity' was inverted so that 1=slight, 2=serious and 3=fatal
+
+# recode DV (using 'car' package) so that 3 is highest outcome, i.e., most severe accidents
+GLA_SV_POST$accident_severity <- car::recode(GLA_SV_POST$accident_severity, as.factor=TRUE, "3=1; 2=2; 1=3") 
+
+# Check distribution of DV - 3 should have the fewest outcomes, 1 the most - i.e., heavily zero-inflated distribution
+table(GLA_SV_POST$accident_severity) 
+
+# Check % of fatal RTCs (should be 1% or more for ordered modelling, or above 20 observations)
+fatal <- (24/1373)*100
+fatal
+
+# Note: the % of fatal RTCs is 1.7% (to nearest whole number) and >20; hence, ordered models are appropriate for GLA_SV_POST
+
+```
+
+
+## 2.5 Stepwise regression for GLA_SV_POST using the 'MASS' package
+```{r}
+
+# A stepwise regression (forward selection) algorithm was used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
+
+# Specify model start point with constant (1) only
+FitStart = polr(accident_severity ~ 1, data=GLA_SV_POST, na.action = na.omit, method = "probit") 
+
+# Specify potential full model for stepwise regression (checked against correlation matrix; also some variables, including propulsion code, junction control and engine capacity were removed due to sparsity or lack of variation)
+FitAll = polr(accident_severity ~ covid + 
+                speed_limit_20 + 
+                casualty_type_cas1_pedestrian + 
+                pedestrian_location_cas1_footway_verge + 
+                pedestrian_location_cas1_in_carriageway_not_crossing + 
+                pedestrian_location_cas1_not_using_crossing + 
+                first_road_class_A + 
+                first_road_class_B + 
+                road_type_one_way + 
+                road_type_dual_c +
+                junction_detail_crossroads + 
+                pedestrian_crossing_physical_facilities_pelican_puffin +
+                pedestrian_crossing_physical_facilities_pedestrian_phase + 
+                light_conditions_dark_lit + 
+                weather_conditions_rain_no_wind + 
+                vehicle_manoeuvre_veh1_reversing + 
+                vehicle_manoeuvre_veh1_slowing_stopping + 
+                vehicle_manoeuvre_veh1_going_ahead_other + 
+                first_point_of_impact_veh1_back + 
+                first_point_of_impact_veh1_offside + 
+                first_point_of_impact_veh1_no_impact + 
+                journey_purpose_of_driver_veh1_commute + 
+                sex_of_driver_veh1_male + 
+                age_band_of_driver_veh1_16_25 + 
+                age_band_of_driver_veh1_over_65 + 
+                age_band_of_driver_veh1_over_75 + 
+                sex_of_casualty_cas1_male + 
+                age_band_of_casualty_cas1_under_10 + 
+                age_band_of_casualty_cas1_11_20 + 
+                age_band_of_casualty_cas1_36_45 + 
+                age_band_of_casualty_cas1_over_65, data=GLA_SV_POST, na.action = na.omit, method = "probit")
+
+
+# Forward selection algorithm (iterative process based on largest reduction in AIC per potential IV added to model formula)
+step(FitStart, direction="forward", scope=formula(FitAll)) 
+
+```
+
+
+## 2.6 The specification of more complex models (e.g. RPOP or RPOPHM) using the 'Rchoice' package, for GLA_SV_POST data
+```{r}
+
+# The 'Rchoice' package allows the specification of more complex models (i.e., RPOP and RPOPHM)
+
+# Re-estimate basic FPOP model (i.e., FPOP_GLA_SV_POST) based on the output of the previous chunk (i.e., the stepwise regression)
+# Note only statistically significant IVs are retained: Pr>|z| (i.e., p-value) < 0.05 (95%) or <0.1 (90%)
+FPOP_GLA_SV_POST <- Rchoice(accident_severity ~ covid + 
+                              age_band_of_casualty_cas1_over_65 + 
+                              first_point_of_impact_veh1_back + 
+                              first_point_of_impact_veh1_offside + 
+                              first_road_class_A + 
+                              age_band_of_driver_veh1_over_65 + 
+                              sex_of_driver_veh1_male + 
+                              casualty_type_cas1_pedestrian + 
+                              junction_detail_crossroads + 
+                              age_band_of_driver_veh1_16_25 + 
+                              sex_of_casualty_cas1_male, data=GLA_SV_POST, family=ordinal("probit"))
+
+# Summarise FPOP model
+summary(FPOP_GLA_SV_POST)
+
+```
+
+## 2.6 continued: random parameter trials
+```{r}
+
+# Now trial random parameters (using the 'Trial_RP_GLA_SV_POST' formula); note: this is a trial and error process, i.e., try every potential IV (that meets the previously defined inclusion criteria as random parameters)
+
+# Trial RPOP 
+Trial_RP_GLA_SV_POST <- Rchoice(accident_severity ~ 
+                                  covid + 
+                                  age_band_of_casualty_cas1_over_65 + 
+                                  first_point_of_impact_veh1_back + 
+                                  first_point_of_impact_veh1_offside + 
+                                  first_road_class_A + 
+                                  age_band_of_driver_veh1_over_65 + 
+                                  sex_of_driver_veh1_male + 
+                                  casualty_type_cas1_pedestrian + 
+                                  junction_detail_crossroads +
+                                  age_band_of_driver_veh1_16_25 + 
+                                  sex_of_casualty_cas1_male + 
+                                  speed_limit_20 + 
+                                  light_conditions_dark_lit, data=GLA_SV_POST, family=ordinal("probit"),
+                                  ranp=c(age_band_of_casualty_cas1_over_65="n", # specify random parameters (ranp); n = normal distribution
+                                  sex_of_driver_veh1_male="n", 
+                                  speed_limit_20="n", 
+                                  light_conditions_dark_lit="n"), 
+                                  R=200) # R = number of Halton draws - 200 is sufficient for ranp trials
+
+# build on FPOP model - trial all available independent variables as random parameters (around 6/7 variables specified as RPs at a time to reduce model estimation time
+
+
+
+# Finalised RPOP model
+RP_GLA_SV_POST <- Rchoice(accident_severity ~ covid + 
+                            age_band_of_casualty_cas1_over_65 + 
+                            first_point_of_impact_veh1_back + 
+                            first_point_of_impact_veh1_offside + 
+                            first_road_class_A + 
+                            age_band_of_driver_veh1_over_65 + 
+                            sex_of_driver_veh1_male + 
+                            casualty_type_cas1_pedestrian + 
+                            junction_detail_crossroads + 
+                            age_band_of_driver_veh1_16_25 + 
+                            sex_of_casualty_cas1_male + 
+                            speed_limit_20 + 
+                            light_conditions_dark_lit, data=GLA_SV_POST, family=ordinal("probit"), 
+                            ranp=c(age_band_of_casualty_cas1_over_65 = "n",
+                            sex_of_driver_veh1_male="n", 
+                            speed_limit_20="n", 
+                            light_conditions_dark_lit="n"), R=500) # R = number of Halton draws - 500 required for final model
+
+# Summarise RPOP model
+summary(RP_GLA_SV_POST)
+
+
+```
+
+
+## 2.6 continued: re-estimate FPOP with RP variables (for purposes of fair comparison of FPOP and RPOP in model evaluation)
+```{r}
+
+# Finalised FPOP model
+FP_GLA_SV_POST <- Rchoice(accident_severity ~ covid + 
+                            age_band_of_casualty_cas1_over_65 + 
+                            first_point_of_impact_veh1_back + 
+                            first_point_of_impact_veh1_offside + 
+                            first_road_class_A + 
+                            age_band_of_driver_veh1_over_65 +
+                            sex_of_driver_veh1_male + 
+                            casualty_type_cas1_pedestrian + 
+                            junction_detail_crossroads + 
+                            age_band_of_driver_veh1_16_25 + 
+                            sex_of_casualty_cas1_male + 
+                            speed_limit_20 + 
+                            light_conditions_dark_lit, data=GLA_SV_POST, family=ordinal("probit"))
+
+# Summarise FPOP model 
+summary(FP_GLA_SV_POST)
+
+```
+
+
+## 2.6 continued: test for heterogeneity in the means of random parameter variables (i.e., RPOPHM trials)
+```{r}
+
+# Random Parameters Ordered Probit with Heterogeneity in the Means of RPs (RPOPHM) trials can be conducted as shown in 'Edinburgh_models.Rmd'; In the case of GLA_SV_POST, the RPOPHM framework produced statistically significant results (i.e., exogenous variables explained heterogeneity in the means of random parameter variables)
+
+# Finalised RPOPHM model
+RPHM_GLA_SV_POST <- Rchoice(accident_severity ~ covid +
+                              age_band_of_casualty_cas1_over_65 + 
+                              first_point_of_impact_veh1_back + 
+                              first_point_of_impact_veh1_offside + 
+                              first_road_class_A + 
+                              age_band_of_driver_veh1_over_65 + 
+                              sex_of_driver_veh1_male + 
+                              casualty_type_cas1_pedestrian + 
+                              junction_detail_crossroads + 
+                              age_band_of_driver_veh1_16_25 + 
+                              sex_of_casualty_cas1_male + 
+                              speed_limit_20 + 
+                              light_conditions_dark_lit | age_band_of_casualty_cas1_over_65 + 
+                              sex_of_driver_veh1_male +
+                              speed_limit_20 + 
+                              light_conditions_dark_lit + 
+                              pedestrian_location_cas1_footway_verge, data=GLA_SV_POST, family=ordinal("probit"),
+                              ranp=c(age_band_of_casualty_cas1_over_65 = "n", # specify random parameters (ranp); n = normal distribution
+                              sex_of_driver_veh1_male="n", 
+                              speed_limit_20="n",
+                              light_conditions_dark_lit="n"), 
+                              R=500, # R = number of Halton draws - 500 required for final model
+                              mvar=list(light_conditions_dark_lit=c("pedestrian_location_cas1_footway_verge"))) # Specification of HM in RP variable(s)
+
+# Summarise RPOPHM model
+summary(RPHM_GLA_SV_POST)
+
+```
+
+
+## 2.7: Model evaluation
+```{r}
+
+# Likelihood ratio tests are utilised in this analysis (using 'lmtest') to compare the final RPOP model (in this case RP_GLA_SV_POST) to the fixed parameters counterpart (FP_GLA_SV_POST) (LRT I); and also, the final RPOPHM model to the FPOP counterpart (LRT II)
+
+# LRTI: LRT test for RP_GLA_SV_POST versus FP_GLA_SV_POST
+LRTI <- lrtest(FP_GLA_SV_POST, RP_GLA_SV_POST)
+LRTI
+
+# The LRTI result shows that that RP_GLA_SV_POST is superior to FP_GLA_SV_POST with >99% level of confidence
+
+
+# LRTII: LRT test for RPHM_GLA_SV_POST versus FP_GLA_SV_POST
+LRTII <- lrtest(FP_GLA_SV_POST, RPHM_GLA_SV_POST)
+LRTII
+
+# The LRTII result shows that that RPHM_GLA_SV_POST is superior to FP_GLA_SV_POST with >99% level of confidence
+
+
+```
+
+
+## -----------------------------------------------------------------------------
+## Final model for GLA_SV_POST = RPOPHM (RPHM_GLA_SV_POST)
+## -----------------------------------------------------------------------------
+
+

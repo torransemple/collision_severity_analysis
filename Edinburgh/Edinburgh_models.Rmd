@@ -1,0 +1,704 @@
+---
+title: "Pre- and post-20mph models models for Edinburgh single-vehicle collisions"
+output: html_notebook
+date: 03/2025
+author: Torran Semple (torran.semple@nottingham.ac.uk or torranas@gmail.com)
+---
+
+<br>
+
+#### Notebook description:
+This notebook describes the modelling process for the Edinburgh models in the manuscript: 'Twelve Years of Evidence: Modelling the Injury Severity of Single-Vehicle Collisions pre- and post-20mph Implementation in Edinburgh and Glasgow' 
+
+<br>
+
+#### Note:
+The data used in this notebook were derived from the UK Gov.'s STATS19 database (see: https://www.data.gov.uk/dataset/cb7ae6f0-4be6-4935-9277-47e5ce24a11f/road-accidents-safety-data)
+
+<br>
+
+## Overview of contents (Section 1: Edinburgh pre-20mph)
+
+1.1  Loading and viewing single-vehicle pre-20mph Edinburgh Road Traffic Collisions (RTCs) (`ED_SV_PRE`)
+<br>
+1.2  Check and generate independent variables for `ED_SV_PRE` (e.g., combined age bands)
+<br>
+1.3  Correlation matrix for potential independent variables in `ED_SV_PRE` (to control for multicollinearity)
+<br>
+1.4  Recoding, reordering & examining the distribution of the `ED_SV_PRE` dependent variable (`accident_severity`)
+<br>
+1.5  Stepwise regression for `ED_SV_PRE` using the `MASS` package: identifying Fixed Parameters Ordered Probit (FPOP) model starting variables
+<br>
+1.6 Specification of more complex models (e.g., Random Parameters Ordered Probit (RPOP) and Random Parameters Ordered Probit models with Heterogeneity in the Means (RPOPHM)) using the `Rchoice` package
+<br>
+1.7  Model evaluation
+
+<br>
+<br>
+
+## Overview of contents (Section 2: Edinburgh post-20mph)
+
+This section mirrors the steps in Section 1, using the Edinburgh single-vehicle post-20mph data (`ED_SV_POST`); i.e., 2.1 loading and viewing data, 2.2 check and generate IVs etc...
+
+<br>
+<br>
+<br>
+
+## Set working directory, load/install required packages and package dependencies
+```{r, warning=FALSE}
+
+# Note: set the working directory to the source file location; for example:
+setwd("~/Documents/collision_severity_analysis/Edinburgh")
+
+# Install required packages if necessary
+if(!require(car)) install.packages("car")
+if(!require(MASS)) install.packages("MASS")
+if(!require(Rchoice)) install.packages("Rchoice")
+if(!require(lmtest)) install.packages("lmtest")
+
+
+# Load required packages
+library(car) # For variable recoding, regression diagnostics and analysis
+library(MASS) # For ordered regression
+library(Rchoice) # For choice modeling
+library(lmtest) # For likelihood-ratio tests
+
+
+# Dependencies - shows R and package versions used in original analysis
+sessioninfo::session_info()
+
+```
+
+<br>
+<br>
+<br>
+
+# -----------------------------------------------------------------------------
+# Section 1: Edinburgh pre-20mph models
+# -----------------------------------------------------------------------------
+
+<br>
+<br>
+
+## 1.1 Loading and viewing ED_SV_PRE
+```{r}
+
+# Load the Edinburgh pre-20mph data (ED_SV_PRE) from GitHub (stored in 'collision_severity_analysis' repo) (alternatively, load 'ED_SV_PRE.csv' locally)
+ED_SV_PRE <- read.csv("https://raw.githubusercontent.com/torransemple/collision_severity_analysis/refs/heads/main/collision_severity_analysis/Edinburgh/data/ED_SV_PRE20_model_data.csv", header=TRUE, sep = ",") 
+
+# Omit NAs, only complete observations can be used (sample reduces from 2591 to 2208 observations)
+ED_SV_PRE <- na.omit(ED_SV_PRE) 
+
+# Check structure of ED_SV_PRE - all available variables, types etc. 
+str(ED_SV_PRE)
+
+# Drop irrelevant columns (inc. duplicates of variables etc.)
+ED_SV_PRE <- ED_SV_PRE[ -c(1:2, 4:46) ]
+
+```
+
+
+## 1.2 Independent variable inclusion criteria for ED_SV_PRE
+```{r}
+
+# Note: potential independent variables must have at least 2% indicator group or no more than 98%
+
+# Set minimum and maximum thresholds
+min_threshold <- 0.02
+max_threshold <- 0.98
+
+# Calculate mean indicator group per column (i.e., independent variable)
+col_means <- colMeans(ED_SV_PRE, na.rm = TRUE)
+
+# Find columns outside the threshold range (<0.02 or >0.98)
+outlier_cols <- names(col_means[col_means < min_threshold | col_means > max_threshold])
+
+# Print the results
+if (length(outlier_cols) > 0) {
+  message("Columns with mean outside", min_threshold, "and", max_threshold, ":")
+  print(outlier_cols)
+} else {
+  message("No columns found with mean outside the specified range.")
+}
+
+# Hence, do not include 'sex_of_driver_veh1_unknown' and 'casualty_type_taxi' in the model as potential IVs; Note: ignore "accident_severity" - this is the dependent variable and does not have a binary outcome; hence, irrelevant to this chunk
+
+```
+
+
+## 1.2 continued: aggregation of age-related IVs
+```{r}
+
+# Some potential independent variables, especially those related to the age of the main casualty/driver, should be aggregated to more intuitive intervals as follows
+
+# Create new variable for age_band_casualty_under_10
+new_var_name <- "age_band_of_casualty_cas1_under_10"
+
+# Create the new variable using ifelse
+ED_SV_PRE[new_var_name] <- rowSums(ED_SV_PRE[, c("age_band_of_casualty_cas1_0_5", "age_band_of_casualty_cas1_6_10")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_PRE[, "age_band_of_casualty_cas1_under_10"] <- as.numeric(ED_SV_PRE[, "age_band_of_casualty_cas1_under_10"])
+
+
+
+# Create new variable for age_band_casualty_11_20
+new_var_name <- "age_band_of_casualty_cas1_11_20"
+
+# Create the new variable using ifelse
+ED_SV_PRE[new_var_name] <- rowSums(ED_SV_PRE[, c("age_band_of_casualty_cas1_11_15", "age_band_of_casualty_cas1_16_20")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_PRE[, "age_band_of_casualty_cas1_11_20"] <- as.numeric(ED_SV_PRE[, "age_band_of_casualty_cas1_11_20"])
+
+
+
+# Create new variable for age_band_casualty_over_65
+new_var_name <- "age_band_of_casualty_cas1_over_65"
+
+# Create the new variable using ifelse
+ED_SV_PRE[new_var_name] <- rowSums(ED_SV_PRE[, c("age_band_of_casualty_cas1_66_75", "age_band_of_casualty_cas1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_PRE[, "age_band_of_casualty_cas1_over_65"] <- as.numeric(ED_SV_PRE[, "age_band_of_casualty_cas1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_over_65
+new_var_name <- "age_band_of_driver_veh1_over_65"
+
+# Create the new variable using ifelse
+ED_SV_PRE[new_var_name] <- rowSums(ED_SV_PRE[, c("age_band_of_driver_veh1_66_75", "age_band_of_driver_veh1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_PRE[, "age_band_of_driver_veh1_over_65"] <- as.numeric(ED_SV_PRE[, "age_band_of_driver_veh1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_16_25
+new_var_name <- "age_band_of_driver_veh1_16_25"
+
+# Create the new variable using ifelse
+ED_SV_PRE[new_var_name] <- rowSums(ED_SV_PRE[, c("age_band_of_driver_veh1_16_20", "age_band_of_driver_veh1_21_25")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_PRE[, "age_band_of_driver_veh1_16_25"] <- as.numeric(ED_SV_PRE[, "age_band_of_driver_veh1_16_25"])
+
+
+```
+
+
+## 1.3 Correlation matrix for potential IVs in ED_SV_PRE models
+```{r, warning=FALSE}
+
+# To control for multicollinearity between potential independent variables, those with pairwise correlation coefficients >0.3 (or <-0.3) were considered too highly correlated to be included in the same model
+
+# Create a correlation matrix for all variables in ED_SV_PRE
+cor_matrix <- cor(ED_SV_PRE)
+
+# Write csv to inspect correlation matrix in a more intuitive environment; note, it is often beneficial to apply coloured conditional formatting in Excel to identify variables that exceed 0.3 or -0.3
+write.csv(x=cor_matrix, file="Cor_ED_SV_PRE.csv")
+
+```
+
+
+## 1.4 Recoding, reordering & examining the distribution of the ED_SV_PRE dependent variable (accident severity)
+```{r}
+
+# Prior to modelling, the DV ('accident_severity') had to be recoded as a factor; further, the order of 'accident_severity' was inverted so that 1=slight, 2=serious and 3=fatal
+
+# recode DV (using 'car' package) so that 3 is highest outcome, i.e., most severe accidents
+ED_SV_PRE$accident_severity <- car::recode(ED_SV_PRE$accident_severity, as.factor=TRUE, "3=1; 2=2; 1=3") 
+
+# Check distribution of DV - 3 should have the fewest outcomes, 1 the most - i.e., heavily zero-inflated distribution
+table(ED_SV_PRE$accident_severity) 
+
+# Check % of fatal RTCs (should be 1% or more for ordered modelling, or above 20 observations)
+fatal <- (22/2208)*100
+fatal
+
+# Note: the % of fatal RTCs is 1% (to nearest whole number) and >20; hence, ordered models are appropriate for ED_SV_PRE
+
+```
+
+
+## 1.5 Stepwise regression for ED_SV_PRE using the 'MASS' package
+```{r}
+
+# A stepwise regression (forward selection) algorithm was used to select the starting variables in the fixed parameters ordered probit (FPOP) framework
+
+# Specify model start point with constant (1) only
+FitStart = polr(accident_severity ~ 1, data=ED_SV_PRE, na.action = na.omit, method = "probit") 
+
+# Specify potential full model for stepwise regression (checked against correlation matrix; also some variables, including propulsion code, junction control and engine capacity were removed due to sparsity or lack of variation)
+FitAll = polr(accident_severity ~ casualty_type_cas1_pedestrian + 
+                pedestrian_location_cas1_footway_verge + 
+                pedestrian_location_cas1_in_carriageway_not_crossing + 
+                pedestrian_location_cas1_not_using_crossing + 
+                bus_passenger_cas1_alighting + 
+                casualty_type_cas1_cyclist + 
+                casualty_type_cas1_motorcylces + 
+                first_road_class_A + 
+                first_road_class_B + 
+                road_type_one_way + 
+                road_type_dual_c + 
+                speed_limit_20 + 
+                junction_detail_crossroads + 
+                pedestrian_crossing_physical_facilities_pelican_puffin +
+                pedestrian_crossing_physical_facilities_pedestrian_phase + 
+                light_conditions_dark_lit + 
+                weather_conditions_rain_no_wind + 
+                vehicle_manoeuvre_veh1_reversing + 
+                vehicle_manoeuvre_veh1_slowing_stopping + 
+                vehicle_manoeuvre_veh1_turning_right + 
+                skidding_and_overturning_veh1_none + 
+                vehicle_leaving_carriageway_veh1_nearside + 
+                first_point_of_impact_veh1_back + 
+                first_point_of_impact_veh1_offside + 
+                first_point_of_impact_veh1_nearside + 
+                journey_purpose_of_driver_veh1_commute + 
+                sex_of_driver_veh1_male + 
+                age_band_of_driver_veh1_16_25 + 
+                age_band_of_driver_veh1_over_65 + 
+                age_band_of_driver_veh1_over_75 + 
+                sex_of_casualty_cas1_male + 
+                age_band_of_casualty_cas1_under_10 + 
+                age_band_of_casualty_cas1_11_20 + 
+                age_band_of_casualty_cas1_36_45 +
+                age_band_of_casualty_cas1_over_65, data=ED_SV_PRE, na.action = na.omit, method = "probit") 
+
+
+# Forward selection algorithm (iterative process based on largest reduction in AIC per potential IV added to model formula)
+step(FitStart, direction="forward", scope=formula(FitAll)) 
+
+```
+
+
+## 1.6 The specification of more complex models (e.g. RPOP or RPOPHM) using the 'Rchoice' package, for ED_SV_PRE data
+```{r}
+
+# The 'Rchoice' package allows the specification of more complex models (i.e., RPOP and RPOPHM)
+
+# Re-estimate basic FPOP model (i.e., FPOP_ED_SV_PRE) based on the output of the previous chunk (i.e., the stepwise regression)
+# Note only statistically significant IVs are retained: Pr>|z| (i.e., p-value) < 0.05 (95%) or <0.1 (90%)
+FPOP_ED_SV_PRE <- Rchoice(accident_severity ~ casualty_type_cas1_pedestrian + 
+                            casualty_type_cas1_cyclist + 
+                            age_band_of_casualty_cas1_over_65 + 
+                            casualty_type_cas1_motorcylces +
+                            pedestrian_location_cas1_footway_verge + 
+                            road_type_dual_c + 
+                            junction_detail_crossroads + 
+                            light_conditions_dark_lit + 
+                            age_band_of_casualty_cas1_11_20 + 
+                            vehicle_leaving_carriageway_veh1_nearside, data=ED_SV_PRE, family=ordinal("probit"))
+
+# Summarise FPOP model
+summary(FPOP_ED_SV_PRE)
+
+```
+
+
+## 1.6 continued: random parameter trials
+```{r}
+
+# Now trial random parameters (using the 'Trial_RP_ED_SV_PRE' formula); note: this is a trial and error process, i.e., try every potential IV (that meets the previously defined inclusion criteria as random parameters)
+
+# Trial RPOP 
+Trial_RP_ED_SV_PRE <- Rchoice(accident_severity ~ casualty_type_cas1_pedestrian + 
+                                casualty_type_cas1_cyclist + 
+                                age_band_of_casualty_cas1_over_65 + 
+                                casualty_type_cas1_motorcylces + 
+                                pedestrian_location_cas1_footway_verge + 
+                                road_type_dual_c + 
+                                junction_detail_crossroads + 
+                                light_conditions_dark_lit + 
+                                age_band_of_casualty_cas1_11_20 + 
+                                vehicle_leaving_carriageway_veh1_nearside + 
+                                road_surface_conditions_wet, data=ED_SV_PRE, family=ordinal("probit"),
+                                ranp=c(pedestrian_location_cas1_footway_verge="n", # specify random parameters (ranp); n = normal distribution
+                                vehicle_leaving_carriageway_veh1_nearside="n", 
+                                road_surface_conditions_wet="n"), 
+                                R=200) # R = number of Halton draws - 200 is sufficient for ranp trials
+
+# build on FPOP model - trial all available independent variables as random parameters (around 6/7 variables specified as RPs at a time to reduce model estimation time
+
+
+
+# Finalised RPOP model
+RP_ED_SV_PRE <- Rchoice(accident_severity ~ casualty_type_cas1_pedestrian + 
+                          casualty_type_cas1_cyclist + 
+                          age_band_of_casualty_cas1_over_65 + 
+                          casualty_type_cas1_motorcylces + 
+                          pedestrian_location_cas1_footway_verge + 
+                          road_type_dual_c + 
+                          junction_detail_crossroads + 
+                          light_conditions_dark_lit + 
+                          age_band_of_casualty_cas1_11_20 + 
+                          vehicle_leaving_carriageway_veh1_nearside + 
+                          road_surface_conditions_wet, data=ED_SV_PRE, family=ordinal("probit"),
+                          ranp=c(vehicle_leaving_carriageway_veh1_nearside="n", # specify random parameters (ranp); n = normal distribution
+                          road_surface_conditions_wet="n"), 
+                          R=500) # R = number of Halton draws - 500 required for final model
+
+# Summarise RPOP model
+summary(RP_ED_SV_PRE)
+
+
+```
+
+
+## 1.6 continued: re-estimate FPOP with RP variables (for purposes of fair comparison of FPOP and RPOP in model evaluation)
+```{r}
+
+# Finalised FPOP model
+FP_ED_SV_PRE <- Rchoice(accident_severity ~  casualty_type_cas1_pedestrian + 
+                          casualty_type_cas1_cyclist + 
+                          age_band_of_casualty_cas1_over_65 + 
+                          casualty_type_cas1_motorcylces + 
+                          pedestrian_location_cas1_footway_verge + 
+                          road_type_dual_c + junction_detail_crossroads + 
+                          light_conditions_dark_lit + 
+                          age_band_of_casualty_cas1_11_20 + 
+                          vehicle_leaving_carriageway_veh1_nearside + 
+                          road_surface_conditions_wet, data=ED_SV_PRE, family=ordinal("probit"))
+
+# Summarise FPOP model 
+summary(FP_ED_SV_PRE)
+
+```
+
+
+## 1.6 continued: test for heterogeneity in the means of random parameter variables (i.e., RPOPHM trials)
+```{r}
+
+# Random Parameters Ordered Probit with Heterogeneity in the Means of RPs (RPOPHM) trial
+RPHM_ED_SV_PRE <- Rchoice(accident_severity ~ casualty_type_cas1_pedestrian + 
+                            casualty_type_cas1_cyclist + 
+                            age_band_of_casualty_cas1_over_65 + 
+                            casualty_type_cas1_motorcylces + 
+                            pedestrian_location_cas1_footway_verge + 
+                            road_type_dual_c + 
+                            junction_detail_crossroads + 
+                            light_conditions_dark_lit + 
+                            age_band_of_casualty_cas1_11_20 + 
+                            vehicle_leaving_carriageway_veh1_nearside + 
+                            road_surface_conditions_wet | vehicle_leaving_carriageway_veh1_nearside + 
+                            road_surface_conditions_wet + 
+                            journey_purpose_of_driver_veh1_commute + 
+                            age_band_of_driver_veh1_16_25, data=ED_SV_PRE, family=ordinal("probit"),
+                            ranp=c(vehicle_leaving_carriageway_veh1_nearside="n",
+                            road_surface_conditions_wet="n"), # specify random parameters (ranp); n = normal distribution
+                            R=200, # R = number of Halton draws - 200 is sufficient for ranp trials
+                            mvar=list(road_surface_conditions_wet=c("journey_purpose_of_driver_veh1_commute", "age_band_of_driver_veh1_16_25"))) # Specification of HM in RP variables
+
+summary(RPHM_ED_SV_PRE)
+
+# Note: no HM in RP variables found, hence, RPOP is the final model for ED_SV_PRE
+
+```
+
+
+## 1.7: Model evaluation
+```{r}
+
+# Likelihood ratio tests are utilised in this analysis (using 'lmtest') to compare the final model (in this case RP_ED_SV_PRE) to the fixed parameters counterpart (FP_ED_SV_PRE)
+
+# LRT test for RP_ED_SV_PRE versus FP_ED_SV_PRE
+lrtest(FP_ED_SV_PRE, RP_ED_SV_PRE)
+
+# The test result shows that that RP_ED_SV_PRE is superior to FP_ED_SV_PRE with >99% level of confidence
+
+```
+
+
+## -----------------------------------------------------------------------------
+## Final model for ED_SV_PRE = RPOP (RP_ED_SV_PRE)
+## -----------------------------------------------------------------------------
+
+
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+
+# -----------------------------------------------------------------------------
+# Section 2: Edinburgh post-20mph models
+# -----------------------------------------------------------------------------
+
+<br>
+<br>
+
+## 2.1 Loading and viewing ED_SV_POST
+```{r}
+
+# Load the Edinburgh pre-20mph data (ED_SV_POST) from GitHub (stored in 'collision_severity_analysis' repo) (alternatively, load 'ED_SV_POST.csv' using your PC's pathname)
+ED_SV_POST <- read.csv("https://raw.githubusercontent.com/torransemple/collision_severity_analysis/refs/heads/main/collision_severity_analysis/Edinburgh/data/ED_SV_POST20_model_data.csv", header=TRUE, sep = ",") 
+
+ED_SV_POST <- na.omit(ED_SV_POST) # omit NAs (sample reduces from 1413 to 1199)
+
+str(ED_SV_POST)
+
+# Note: a "covid" variable is included in the post-20mph scenarios (referring to the period of the first lockdown (24.03.2020) until Scotland moved beyond "level zero" dropping most major restrictions on 09.08.21, see: https://spice-spotlight.scot/2023/05/10/timeline-of-coronavirus-covid-19-in-scotland/)
+
+# Drop irrelevant columns (inc. duplicates of variables etc.)
+ED_SV_POST <- ED_SV_POST[ -c(1:2, 4:6, 9:45) ]
+
+```
+
+
+## 2.2 Independent variable inclusion criteria for ED_SV_POST
+```{r}
+
+# Note: potential independent variables must have at least 2% indicator group or no more than 98%
+
+# Set minimum and maximum thresholds
+min_threshold <- 0.02
+max_threshold <- 0.98
+
+# Calculate mean indicator group per column (i.e., independent variable)
+col_means <- colMeans(ED_SV_POST, na.rm = TRUE)
+
+# Find columns outside the threshold range (<0.02 or >0.98)
+outlier_cols <- names(col_means[col_means < min_threshold | col_means > max_threshold])
+
+# Print the results
+if (length(outlier_cols) > 0) {
+  message("Columns with mean outside", min_threshold, "and", max_threshold, ":")
+  print(outlier_cols)
+} else {
+  message("No columns found with mean outside the specified range.")
+}
+
+# Hence, do not include 'casualty_type_cas1', 'road_type_one_way', 'journey_purpose_of_driver_veh1_unknown', 'sex_of_driver_veh1_unknown', 'casualty_type_cas1_taxi' in ED_SV_POST models
+
+```
+
+
+## 2.2 continued: aggregation of age-related IVs
+```{r}
+
+# Some potential independent variables, especially those related to the age of the main casualty/driver, should be aggregated to more intuitive intervals as follows
+
+# Create new variable for age_band_casualty_under_10
+new_var_name <- "age_band_of_casualty_cas1_under_10"
+
+# Create the new variable using ifelse
+ED_SV_POST[new_var_name] <- rowSums(ED_SV_POST[, c("age_band_of_casualty_cas1_0_5", "age_band_of_casualty_cas1_6_10")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_POST[, "age_band_of_casualty_cas1_under_10"] <- as.numeric(ED_SV_POST[, "age_band_of_casualty_cas1_under_10"])
+
+
+
+# Create new variable for age_band_casualty_11_20
+new_var_name <- "age_band_of_casualty_cas1_11_20"
+
+# Create the new variable using ifelse
+ED_SV_POST[new_var_name] <- rowSums(ED_SV_POST[, c("age_band_of_casualty_cas1_11_15", "age_band_of_casualty_cas1_16_20")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_POST[, "age_band_of_casualty_cas1_11_20"] <- as.numeric(ED_SV_POST[, "age_band_of_casualty_cas1_11_20"])
+
+
+
+# Create new variable for age_band_casualty_over_65
+new_var_name <- "age_band_of_casualty_cas1_over_65"
+
+# Create the new variable using ifelse
+ED_SV_POST[new_var_name] <- rowSums(ED_SV_POST[, c("age_band_of_casualty_cas1_66_75", "age_band_of_casualty_cas1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_POST[, "age_band_of_casualty_cas1_over_65"] <- as.numeric(ED_SV_POST[, "age_band_of_casualty_cas1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_over_65
+new_var_name <- "age_band_of_driver_veh1_over_65"
+
+# Create the new variable using ifelse
+ED_SV_POST[new_var_name] <- rowSums(ED_SV_POST[, c("age_band_of_driver_veh1_66_75", "age_band_of_driver_veh1_over_75")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_POST[, "age_band_of_driver_veh1_over_65"] <- as.numeric(ED_SV_POST[, "age_band_of_driver_veh1_over_65"])
+
+
+
+# Create new variable for age_band_of_driver_veh1_16_25
+new_var_name <- "age_band_of_driver_veh1_16_25"
+
+# Create the new variable using ifelse
+ED_SV_POST[new_var_name] <- rowSums(ED_SV_POST[, c("age_band_of_driver_veh1_16_20", "age_band_of_driver_veh1_21_25")]) >= 1
+
+# Convert logical values to numeric (1 for TRUE, 0 for FALSE)
+ED_SV_POST[, "age_band_of_driver_veh1_16_25"] <- as.numeric(ED_SV_POST[, "age_band_of_driver_veh1_16_25"])
+
+
+```
+
+
+## 2.3 Correlation matrix for potential IVs in ED_SV_POST models
+```{r, warning=FALSE}
+
+# To control for multicollinearity between potential independent variables, those with pairwise correlation coefficients >0.3 (or <-0.3) were considered too highly correlated to be included in the same model
+
+# Create a correlation matrix for all variables in ED_SV_POST
+cor_matrix <- cor(ED_SV_POST)
+
+# Write csv to inspect correlation matrix in a more intuitive environment; note, it is often beneficial to apply coloured conditional formatting in Excel to identify variables that exceed 0.3 or -0.3
+write.csv(x=cor_matrix, file="Cor_ED_SV_POST.csv")
+
+```
+
+
+## 2.4 Recoding, reordering & examining the distribution of the ED_SV_POST dependent variable (accident severity)
+```{r}
+
+# Prior to modelling, the DV ('accident_severity') had to be recoded as a factor; further, the order of 'accident_severity' was inverted so that 1=slight, 2=serious and 3=fatal
+
+# recode DV (using 'car' package) so that 3 is highest outcome, i.e., most severe accidents
+ED_SV_POST$accident_severity <- car::recode(ED_SV_POST$accident_severity, as.factor=TRUE, "3=1; 2=2; 1=3") 
+
+# Check distribution of DV - 3 should have the fewest outcomes, 1 the most - i.e., heavily zero-inflated distribution
+table(ED_SV_POST$accident_severity) 
+
+# Check % of fatal RTCs (should be 1% or more for ordered modelling and >20 observations)
+fatal <- (12/1199)*100
+fatal
+
+# Note: the % of fatal RTCs is ~1%; however, the absolute number of fatal outcomes (12) was deemed too few for ordered modelling; hence, binary (KSI) probit models were considered in the ED_SV_POST scenario
+
+# Distribution of ksi
+table(ED_SV_POST$ksi) 
+
+```
+
+
+## 2.5 Stepwise regression for ED_SV_POST
+```{r}
+
+# Note, binary stepwise regression was not possible using the MASS package, hence, this stage was skipped and starting variables for the Fixed Parameters Binary Probit Model (FPBP) were informed by the initial variables in the ED_SV_PRE model
+
+```
+
+
+## 2.6 The specification of more complex models (e.g. RPBP pr RPBPHM) using the 'Rchoice' package, for ED_SV_POST data
+```{r}
+
+# The 'Rchoice' package allows the specification of more complex models (i.e., RPBP and RPBPHM)
+
+# Note only statistically significant IVs are retained: Pr>|z| (i.e., p-value) < 0.05 (95%) or <0.1 (90%)
+FPBP_ED_SV_POST <- Rchoice(ksi ~ trans + first_point_of_impact_veh1_no_impact + 
+                             age_band_of_casualty_cas1_over_65 + 
+                             casualty_type_cas1_cyclist + 
+                             casualty_type_cas1_motorcylces + 
+                             light_conditions_dark_lit + 
+                             covid + 
+                             vehicle_manoeuvre_veh1_going_ahead_other + 
+                             pedestrian_location_cas1_footway_verge + 
+                             first_point_of_impact_veh1_back, data=ED_SV_POST, family=binomial("probit"))
+
+# Summarise FPBP model
+summary(FPBP_ED_SV_POST)
+
+```
+
+
+## 2.6 continued: random parameter trials
+```{r}
+
+# Now trial random parameters (using the 'Trial_RP_ED_SV_POST' formula); note: this is a trial and error process, i.e., try every potential IV (that meets the previously defined inclusion criteria as random parameters)
+
+# Trial RPBP
+Trial_RPBP_ED_SV_POST <- Rchoice(ksi ~ trans + 
+                                   first_point_of_impact_veh1_no_impact +
+                                   age_band_of_casualty_cas1_over_65 + 
+                                   casualty_type_cas1_cyclist + 
+                                   casualty_type_cas1_motorcylces + 
+                                   light_conditions_dark_lit + 
+                                   covid + 
+                                   vehicle_manoeuvre_veh1_going_ahead_other + 
+                                   pedestrian_location_cas1_footway_verge + 
+                                   first_point_of_impact_veh1_back + 
+                                   age_band_of_casualty_cas1_under_10 + 
+                                   age_band_of_driver_veh1_over_65 + age_band_of_driver_veh1_16_25 + 
+                                   road_type_single_c, data=ED_SV_POST, family=binomial("probit"), 
+                                   ranp=c(road_type_single_c="n"), R=200)
+
+
+# Final model
+RPBP_ED_SV_POST <- Rchoice(ksi ~ trans + 
+                           first_point_of_impact_veh1_no_impact + 
+                           age_band_of_casualty_cas1_over_65 + 
+                           casualty_type_cas1_cyclist + 
+                           casualty_type_cas1_motorcylces + 
+                           light_conditions_dark_lit + 
+                           covid + 
+                           vehicle_manoeuvre_veh1_going_ahead_other + 
+                           pedestrian_location_cas1_footway_verge +
+                           first_point_of_impact_veh1_back + 
+                           road_type_single_c, data=ED_SV_POST, family=binomial("probit"),
+                           ranp=c(road_type_single_c="n"), R=500)
+
+# Summarise RPBP model
+summary(RPBP_ED_SV_POST)
+
+
+```
+
+
+## 2.6 continued: re-estimate FPBP with RP variables
+```{r}
+
+# Finalised FPBP model
+FPBP_ED_SV_POST <- Rchoice(ksi ~ trans + 
+                             first_point_of_impact_veh1_no_impact + 
+                             age_band_of_casualty_cas1_over_65 + 
+                             casualty_type_cas1_cyclist + 
+                             casualty_type_cas1_motorcylces + 
+                             light_conditions_dark_lit + 
+                             covid + 
+                             vehicle_manoeuvre_veh1_going_ahead_other + 
+                             pedestrian_location_cas1_footway_verge + 
+                             first_point_of_impact_veh1_back + 
+                             road_type_single_c, data=ED_SV_POST, family=binomial("probit"))
+
+# Summarise FPBP model 
+summary(FPBP_ED_SV_POST)
+
+```
+
+
+## 2.6 continued: test for heterogeneity in the means of random parameter variables (i.e., RPBPHM trials)
+```{r}
+
+# Random Parameters Ordered Probit with Heterogeneity in the Means of RPs (RPBPHM) trial
+
+Trial_RPBPHM_ED_SV_POST <- Rchoice(ksi ~ trans + 
+                           first_point_of_impact_veh1_no_impact + 
+                           age_band_of_casualty_cas1_over_65 + 
+                           casualty_type_cas1_cyclist + 
+                           casualty_type_cas1_motorcylces + 
+                           light_conditions_dark_lit + 
+                           covid + 
+                           vehicle_manoeuvre_veh1_going_ahead_other + 
+                           pedestrian_location_cas1_footway_verge +
+                           first_point_of_impact_veh1_back + 
+                           road_type_single_c | road_type_single_c + 
+                           sex_of_driver_veh1_male +
+                           speed_limit_20, data=ED_SV_POST, family=binomial("probit"),
+                           ranp=c(road_type_single_c="n"), 
+                           R=200, # R = number of Halton draws - 200 is sufficient for ranp trials
+                           mvar=list(road_type_single_c=c("sex_of_driver_veh1_male", "speed_limit_20"))) # Specification of HM in RP variable(s)
+
+# Note: no HM in RP variables found, hence, RPBP is the final model for ED_SV_POST
+
+```
+
+## -----------------------------------------------------------------------------
+## Final model for ED_SV_POST = RPBP (RPBP_ED_SV_POST)
+## -----------------------------------------------------------------------------
+
+
