@@ -25,10 +25,8 @@ The data subfolder within Edinburgh and Glasgow provides collision severity data
 Environment Setup: Ensure you are using R version 4.5.1 or later. Refer to code/session_info.txt for the exact environment configuration.
 
 Installation: Install the necessary libraries by running the following command in the R console:
-
-R
-
 install.packages(c("tidyverse", "cowplot", "janitor", "sqldf", "lme4"))
+
 Data Loading: The scripts are configured to read data directly from this GitHub repository using raw URLs. If you are working offline, please update the file paths to point to your local /data directory.
 
 ## Reproducibility and Session Info
